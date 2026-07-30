@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-package com.rtbishop.look4sat
+package cn.bh2vsq.look4sat
 
 import android.app.Application
 import com.rtbishop.look4sat.core.data.injection.MainContainer

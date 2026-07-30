@@ -1,0 +1,3 @@
+-keep class org.osmdroid.** { *; }
+-keep class com.rtbishop.look4sat.feature.map.*TiandituTileSource* { *; }
+-dontwarn org.osmdroid.**

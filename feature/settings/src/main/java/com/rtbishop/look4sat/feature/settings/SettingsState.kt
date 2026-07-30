@@ -61,6 +61,8 @@ sealed interface SettingsAction {
     data class ToggleSensor(val value: Boolean) : SettingsAction
     data class ToggleLightTheme(val value: Boolean) : SettingsAction
     data class ToggleNightMode(val value: Boolean) : SettingsAction
+    data class SetMapSource(val value: String) : SettingsAction
+    data class SetTiandituKey(val value: String) : SettingsAction
 
     // Remote control
     data class UpdateRC(val settings: RCSettings) : SettingsAction

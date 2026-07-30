@@ -61,6 +61,8 @@ class MapViewModel(
         MapState(
             isLightUi = settingsRepo.otherSettings.value.stateOfLightTheme,
             isUtc = settingsRepo.otherSettings.value.stateOfUtc,
+            mapSource = settingsRepo.otherSettings.value.mapSource,
+            tiandituKey = settingsRepo.otherSettings.value.tiandituKey,
             orbitalPass = defaultPass
         )
     )
@@ -74,7 +76,13 @@ class MapViewModel(
     init {
         viewModelScope.launch {
             settingsRepo.otherSettings.collectLatest { settings ->
-                _uiState.update { it.copy(isUtc = settings.stateOfUtc) }
+                _uiState.update {
+                    it.copy(
+                        isUtc = settings.stateOfUtc,
+                        mapSource = settings.mapSource,
+                        tiandituKey = settings.tiandituKey
+                    )
+                }
             }
         }
         val (selectedCatNum, _) = satelliteRepo.selectedPass.value
@@ -269,27 +277,43 @@ class MapViewModel(
         val satTracks = mutableListOf<List<GeoPos>>()
         val currentTrack = mutableListOf<GeoPos>()
         val endDate = Date(date.time + (orbitalObject.data.orbitalPeriod * 2.4 * 60000L).toLong())
-        var oldLongitude = 0.0
+        var previousPosition: GeoPos? = null
         satelliteRepo.getTrack(orbitalObject, pos, date.time, endDate.time).forEach { satPos ->
             val currentPosition = satPos.toMapGeoPos()
-            if (oldLongitude < -170.0 && currentPosition.longitude > 170.0) {
+            val previous = previousPosition
+            if (previous != null && previous.longitude < -170.0 && currentPosition.longitude > 170.0) {
                 // adding left terminal position
-                currentTrack.add(GeoPos(currentPosition.latitude, -180.0))
+                val edgeLatitude = getDateLineLatitude(previous, currentPosition)
+                currentTrack.add(GeoPos(edgeLatitude, -180.0))
                 val finishedTrack = mutableListOf<GeoPos>().apply { addAll(currentTrack) }
                 satTracks.add(finishedTrack)
                 currentTrack.clear()
-            } else if (oldLongitude > 170.0 && currentPosition.longitude < -170.0) {
+                currentTrack.add(GeoPos(edgeLatitude, 180.0))
+            } else if (previous != null && previous.longitude > 170.0 && currentPosition.longitude < -170.0) {
                 // adding right terminal position
-                currentTrack.add(GeoPos(currentPosition.latitude, 180.0))
+                val edgeLatitude = getDateLineLatitude(previous, currentPosition)
+                currentTrack.add(GeoPos(edgeLatitude, 180.0))
                 val finishedTrack = mutableListOf<GeoPos>().apply { addAll(currentTrack) }
                 satTracks.add(finishedTrack)
                 currentTrack.clear()
+                currentTrack.add(GeoPos(edgeLatitude, -180.0))
             }
-            oldLongitude = currentPosition.longitude
+            previousPosition = currentPosition
             currentTrack.add(currentPosition)
         }
         satTracks.add(currentTrack)
         _uiState.update { it.copy(track = satTracks) }
+    }
+
+    private fun getDateLineLatitude(previous: GeoPos, current: GeoPos): Double {
+        val currentLon = if (previous.longitude < 0.0 && current.longitude > 0.0) {
+            current.longitude - 360.0
+        } else {
+            current.longitude + 360.0
+        }
+        val edgeLon = if (previous.longitude < 0.0) -180.0 else 180.0
+        val fraction = (edgeLon - previous.longitude) / (currentLon - previous.longitude)
+        return previous.latitude + (current.latitude - previous.latitude) * fraction
     }
 
     companion object {

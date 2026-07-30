@@ -34,10 +34,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ElevatedButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,11 +60,13 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rtbishop.look4sat.core.domain.model.MapSource
 import com.rtbishop.look4sat.core.domain.model.OtherSettings
 import com.rtbishop.look4sat.core.domain.predict.GeoPos
 import com.rtbishop.look4sat.core.domain.repository.IContainerProvider
@@ -280,6 +286,7 @@ private fun SettingsScreen(uiState: SettingsState, onAction: (SettingsAction) ->
                 )
             }
             item { OtherCard(uiState.otherSettings, onAction) }
+            item { MapSettingsCard(uiState.otherSettings, onAction) }
             item { CardCredits() }
         }
     }
@@ -460,6 +467,106 @@ private fun OtherCardPreview() = MainTheme {
         shouldSeeWhatsNew = false
     )
     OtherCard(settings = values) {}
+}
+
+@Composable
+private fun MapSettingsCard(settings: OtherSettings, onAction: (SettingsAction) -> Unit) {
+    var keyValue by remember(settings.tiandituKey) { mutableStateOf(settings.tiandituKey) }
+    LaunchedEffect(keyValue) {
+        kotlinx.coroutines.delay(400)
+        if (keyValue.trim() != settings.tiandituKey) {
+            onAction(SettingsAction.SetTiandituKey(keyValue))
+        }
+    }
+    ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            Text(
+                text = stringResource(id = R.string.prefs_map_title),
+                color = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            val currentMapSource = MapSource.normalize(settings.mapSource)
+            MapSourceRow(
+                currentMapSource = currentMapSource,
+                firstSource = MapSource.OSM,
+                firstTitle = stringResource(id = R.string.prefs_map_source_osm),
+                secondSource = MapSource.TIANDITU_VECTOR,
+                secondTitle = stringResource(id = R.string.prefs_map_source_tianditu_vector),
+                onAction = onAction
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            MapSourceRow(
+                currentMapSource = currentMapSource,
+                firstSource = MapSource.TIANDITU_IMAGE,
+                firstTitle = stringResource(id = R.string.prefs_map_source_tianditu_image),
+                onAction = onAction
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            OutlinedTextField(
+                value = keyValue,
+                onValueChange = { keyValue = it },
+                label = { Text(text = stringResource(id = R.string.prefs_map_tianditu_key)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            CardButton(
+                onClick = { onAction(SettingsAction.SetTiandituKey(keyValue)) },
+                text = stringResource(id = R.string.prefs_map_save_key),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+private fun MapSourceRow(
+    currentMapSource: String,
+    firstSource: String,
+    firstTitle: String,
+    secondSource: String? = null,
+    secondTitle: String? = null,
+    onAction: (SettingsAction) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        MapSourceButton(
+            onClick = { onAction(SettingsAction.SetMapSource(firstSource)) },
+            text = firstTitle,
+            selected = currentMapSource == firstSource,
+            modifier = Modifier.weight(1f)
+        )
+        if (secondSource != null && secondTitle != null) {
+            MapSourceButton(
+                onClick = { onAction(SettingsAction.SetMapSource(secondSource)) },
+                text = secondTitle,
+                selected = currentMapSource == secondSource,
+                modifier = Modifier.weight(1f)
+            )
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun MapSourceButton(onClick: () -> Unit, text: String, selected: Boolean, modifier: Modifier = Modifier) {
+    ElevatedButton(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = if (selected) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        shape = MaterialTheme.shapes.small,
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+    ) {
+        Text(text = text, fontSize = 16.sp, textAlign = TextAlign.Center)
+    }
 }
 
 @Composable

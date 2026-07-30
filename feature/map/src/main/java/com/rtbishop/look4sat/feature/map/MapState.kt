@@ -26,6 +26,8 @@ data class MapState(
     val mapData: MapData? = null,
     val isLightUi: Boolean = false,
     val isUtc: Boolean = false,
+    val mapSource: String = "",
+    val tiandituKey: String = "",
     val stationPosition: GeoPos? = null,
     val orbitalPass: OrbitalPass,
     val track: List<List<GeoPos>>? = null,

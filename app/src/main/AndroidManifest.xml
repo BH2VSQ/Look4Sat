@@ -15,14 +15,15 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
-        android:name=".MainApplication"
+        android:name="cn.bh2vsq.look4sat.MainApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round">
 
         <activity
-            android:name=".MainActivity"
+            android:name="cn.bh2vsq.look4sat.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Look4Sat.SplashScreen">
             <intent-filter>
@@ -41,7 +42,7 @@
 
         <meta-data
             android:name="android.telephony.PROPERTY_SATELLITE_DATA_OPTIMIZED"
-            android:value="com.rtbishop.look4sat" />
+            android:value="cn.bh2vsq.look4sat" />
 
     </application>
 </manifest>

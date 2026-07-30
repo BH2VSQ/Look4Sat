@@ -57,8 +57,23 @@ data class OtherSettings(
     val stateOfNightMode: Boolean = false,
     val shouldSeeWarning: Boolean,
     val shouldSeeWhatsNew: Boolean,
-    val sstvMode: String = "Auto"
+    val sstvMode: String = "Auto",
+    val mapSource: String = MapSource.TIANDITU_VECTOR,
+    val tiandituKey: String = ""
 )
+
+object MapSource {
+    const val OSM = "osm"
+    const val TIANDITU = "tianditu"
+    const val TIANDITU_VECTOR = "tianditu_vector"
+    const val TIANDITU_IMAGE = "tianditu_image"
+
+    fun normalize(source: String): String = when (source) {
+        TIANDITU -> TIANDITU_VECTOR
+        OSM, TIANDITU_VECTOR, TIANDITU_IMAGE -> source
+        else -> TIANDITU_VECTOR
+    }
+}
 
 data class DataSourcesSettings(
     val useCustomTLE: Boolean,

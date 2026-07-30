@@ -25,6 +25,7 @@ import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import com.rtbishop.look4sat.core.domain.model.DataSourcesSettings
 import com.rtbishop.look4sat.core.domain.model.DatabaseState
+import com.rtbishop.look4sat.core.domain.model.MapSource
 import com.rtbishop.look4sat.core.domain.model.OtherSettings
 import com.rtbishop.look4sat.core.domain.model.PassesSettings
 import com.rtbishop.look4sat.core.domain.model.RCSettings
@@ -82,6 +83,8 @@ class SettingsRepo(
     private val keyShouldSeeWarning = "shouldSeeWarning"
     private val keyShouldSeeWhatsNew = "shouldSeeWhatsNew_v$appVersionName"
     private val keySstvMode = "sstvMode"
+    private val keyMapSource = "mapSource"
+    private val keyTiandituKey = "tiandituKey"
     private val keyUseCustomTle = "useCustomTle"
     private val keyUseCustomTransceivers = "useCustomTransceivers"
     private val keyTleUrl = "tleUrl"
@@ -335,6 +338,8 @@ class SettingsRepo(
                 putBoolean(keyShouldSeeWarning, new.shouldSeeWarning)
                 putBoolean(keyShouldSeeWhatsNew, new.shouldSeeWhatsNew)
                 putString(keySstvMode, new.sstvMode)
+                putString(keyMapSource, MapSource.normalize(new.mapSource))
+                putString(keyTiandituKey, new.tiandituKey)
             }
             new
         }
@@ -349,7 +354,9 @@ class SettingsRepo(
         stateOfNightMode = preferences.getBoolean(keyStateOfNightMode, false),
         shouldSeeWarning = preferences.getBoolean(keyShouldSeeWarning, true),
         shouldSeeWhatsNew = preferences.getBoolean(keyShouldSeeWhatsNew, true),
-        sstvMode = preferences.getString(keySstvMode, null) ?: "Auto"
+        sstvMode = preferences.getString(keySstvMode, null) ?: "Auto",
+        mapSource = MapSource.normalize(preferences.getString(keyMapSource, null) ?: MapSource.TIANDITU_VECTOR),
+        tiandituKey = preferences.getString(keyTiandituKey, null) ?: ""
     )
     //endregion
 

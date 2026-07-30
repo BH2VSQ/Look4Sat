@@ -121,6 +121,8 @@ class SettingsViewModel(
             is SettingsAction.ToggleSensor -> settingsRepo.updateOtherSettings { it.copy(stateOfSensors = action.value) }
             is SettingsAction.ToggleLightTheme -> settingsRepo.updateOtherSettings { it.copy(stateOfLightTheme = action.value) }
             is SettingsAction.ToggleNightMode -> settingsRepo.updateOtherSettings { it.copy(stateOfNightMode = action.value) }
+            is SettingsAction.SetMapSource -> settingsRepo.updateOtherSettings { it.copy(mapSource = action.value) }
+            is SettingsAction.SetTiandituKey -> settingsRepo.updateOtherSettings { it.copy(tiandituKey = action.value.trim()) }
             // Remote control & data sources
             is SettingsAction.UpdateRC -> settingsRepo.updateRCSettings(action.settings)
             is SettingsAction.UpdateRadioControl -> settingsRepo.updateRadioControlSettings(action.settings)

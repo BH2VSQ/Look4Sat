@@ -32,7 +32,7 @@
     <string name="pass_altitude">高度：%d km</string>
     <string name="pass_empty_list_message">请确保您的过滤器设置正确，并且已选择卫星</string>
     <string name="pass_error_message">没有即将过境的卫星</string>
-    <string name="pass_welcome_title">欢迎来到 Look4Sat\!</string>
+    <string name="pass_welcome_title">欢迎来到 Look4Sat-CNMap\!</string>
     <string name="pass_welcome_message">请务必在设置中通过GPS、经纬度或QTH定位您的位置\n建议至少每周更新一次数据库，以确保预测结果的准确性</string>
 
     <!-- Radar screen -->

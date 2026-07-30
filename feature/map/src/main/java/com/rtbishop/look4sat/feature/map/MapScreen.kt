@@ -60,6 +60,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.rtbishop.look4sat.core.domain.model.MapSource
 import com.rtbishop.look4sat.core.domain.predict.GeoPos
 import com.rtbishop.look4sat.core.domain.predict.OrbitalObject
 import com.rtbishop.look4sat.core.domain.predict.OrbitalPos
@@ -71,37 +72,56 @@ import com.rtbishop.look4sat.core.presentation.TimerRow
 import com.rtbishop.look4sat.core.presentation.TopBar
 import com.rtbishop.look4sat.core.presentation.isVerticalLayout
 import com.rtbishop.look4sat.core.presentation.layoutPadding
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.CustomZoomButtonsController
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.FolderOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.TilesOverlay
+import java.io.File
+import java.net.URLEncoder
 
 // Overlay indices
-private const val OVERLAY_STATION = 0
-private const val OVERLAY_TRACK = 1
-private const val OVERLAY_FOOTPRINT = 2
-private const val OVERLAY_POSITIONS = 3
-private const val OVERLAY_TERMINATOR = 4
+private const val OVERLAY_TDT_LABELS = 0
+private const val OVERLAY_STATION = 1
+private const val OVERLAY_TRACK = 2
+private const val OVERLAY_FOOTPRINT = 3
+private const val OVERLAY_POSITIONS = 4
 private const val OVERLAY_SUN = 5
 private const val OVERLAY_MOON = 6
 private const val OVERLAY_COUNT = 7
 
 private val minLat = MapView.getTileSystem().minLatitude
 private val maxLat = MapView.getTileSystem().maxLatitude
+private val offlineTileSource = XYTileSource("tiles", 0, 6, 256, ".webp", emptyArray<String>())
+private const val OFFLINE_MAX_ZOOM = 7.0
+private const val OSM_MAX_ZOOM = 19.0
+private const val TIANDITU_MAX_ZOOM = 18.0
+private const val TILE_CACHE_MAX_BYTES = 1024L * 1024L * 1024L
+private const val TILE_CACHE_TRIM_BYTES = 900L * 1024L * 1024L
+private const val TILE_REFRESH_DELAY_MS = 250L
+private const val TILE_SOURCE_OSM = "osm"
+private const val TILE_USER_AGENT = "Look4Sat-CNMap"
 private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    strokeWidth = 3f
+    strokeWidth = 4f
     style = Paint.Style.STROKE
-    color = Color.RED
+    color = "#1565C0".toColorInt()
     strokeCap = Paint.Cap.ROUND
     strokeJoin = Paint.Join.ROUND
 }
-private val footprintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-    strokeWidth = 3f
-    style = Paint.Style.FILL_AND_STROKE
-    color = "#FFE082".toColorInt()
+private val footprintOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    strokeWidth = 4f
+    style = Paint.Style.STROKE
+    color = "#00897B".toColorInt()
+    strokeCap = Paint.Cap.ROUND
+    strokeJoin = Paint.Join.ROUND
 }
 private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
     textSize = 36f
@@ -134,10 +154,16 @@ private fun MapScreen(uiState: MapState, onAction: (MapAction) -> Unit, mapView:
     val rotateMod = Modifier.rotate(180f)
     val timeString = uiState.mapData?.aosTime ?: "00:00:00"
     val isTimeAos = uiState.mapData?.isTimeAos ?: true
+    val usesTianditu = tiandituLayers(uiState.mapSource) != null && uiState.tiandituKey.isNotBlank()
+    val copyrightResId = if (usesTianditu) R.string.map_copyright_tianditu
+    else R.string.map_copyright_osm
 
     LaunchedEffect(uiState.track) {
         val firstPos = uiState.track?.firstOrNull()?.firstOrNull() ?: return@LaunchedEffect
         mapView.controller.animateTo(GeoPoint(firstPos.latitude, firstPos.longitude))
+    }
+    LaunchedEffect(uiState.mapSource, uiState.tiandituKey) {
+        configureTileSources(mapView, uiState.mapSource, uiState.tiandituKey)
     }
     Column(modifier = Modifier.layoutPadding(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val isVertical = isVerticalLayout()
@@ -163,13 +189,12 @@ private fun MapScreen(uiState: MapState, onAction: (MapAction) -> Unit, mapView:
                     uiState.track?.let { setSatelliteTrack(it, view) }
                     uiState.footprint?.let { setFootprint(it, view) }
                     uiState.positions?.let { setPositions(it, view) { item -> onAction(MapAction.SelectItem(item)) } }
-                    setTerminator(uiState.sunLatDeg, uiState.sunLonDeg, view)
                     setSubSolarPoint(uiState.sunLatDeg, uiState.sunLonDeg, view)
                     setMoonPosition(uiState.moonLatDeg, uiState.moonLonDeg, view)
                     view.invalidate()
                 }
                 uiState.mapData?.let { mapData ->
-                    if (isVertical) MapDataCard(mapData) else MapDataCards(mapData)
+                    if (isVertical) MapDataCard(mapData, copyrightResId) else MapDataCards(mapData, copyrightResId)
                 }
             }
         }
@@ -178,11 +203,11 @@ private fun MapScreen(uiState: MapState, onAction: (MapAction) -> Unit, mapView:
 
 // region Map data composables
 @Composable
-private fun MapDataCard(data: MapData) {
+private fun MapDataCard(data: MapData, copyrightResId: Int) {
     val textColor = MaterialTheme.colorScheme.primary
     val cardColors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest)
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = stringResource(R.string.map_copyright), fontSize = 14.sp)
+        Text(text = stringResource(copyrightResId), fontSize = 14.sp)
         Card(colors = cardColors) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                 MapDataRow(
@@ -220,7 +245,7 @@ private fun MapDataRow(
 }
 
 @Composable
-private fun MapDataCards(data: MapData) {
+private fun MapDataCards(data: MapData, copyrightResId: Int) {
     val cardColors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLowest)
     val paddingMod = Modifier
         .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -246,7 +271,7 @@ private fun MapDataCards(data: MapData) {
             }
         }
         Text(
-            text = stringResource(R.string.map_copyright),
+            text = stringResource(copyrightResId),
             fontSize = 14.sp,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
@@ -256,6 +281,114 @@ private fun MapDataCards(data: MapData) {
                 Text(text = stringResource(R.string.map_longitude, data.osmPos.longitude))
             }
         }
+    }
+}
+// endregion
+
+// region Tile sources
+private var configuredTileMapView: MapView? = null
+private var configuredTileSource: String? = null
+
+private fun configureTileSources(mapView: MapView, mapSource: String, tiandituKey: String) {
+    val key = tiandituKey.trim()
+    val layers = tiandituLayers(mapSource)
+    val tileSourceKey = if (layers == null || key.isBlank()) {
+        TILE_SOURCE_OSM
+    } else {
+        "tianditu:${layers.base}:${layers.label}:$key"
+    }
+    if (configuredTileMapView === mapView && configuredTileSource == tileSourceKey) {
+        requestTileRefresh(mapView)
+        return
+    }
+    configuredTileMapView = mapView
+    configuredTileSource = tileSourceKey
+
+    if (layers == null || key.isBlank()) {
+        mapView.setUseDataConnection(true)
+        mapView.setTileProvider(MapTileProviderBasic(mapView.context, TileSourceFactory.MAPNIK))
+        mapView.maxZoomLevel = OSM_MAX_ZOOM
+        mapView.overlayManager.tilesOverlay.applyTileOverlayDefaults()
+        mapView.overlays[OVERLAY_TDT_LABELS] = FolderOverlay()
+        requestTileRefresh(mapView)
+        return
+    }
+    mapView.setUseDataConnection(true)
+    mapView.setTileProvider(MapTileProviderBasic(mapView.context, TiandituTileSource(layer = layers.base, key = key)))
+    mapView.maxZoomLevel = TIANDITU_MAX_ZOOM
+    mapView.overlayManager.tilesOverlay.applyTileOverlayDefaults()
+    mapView.overlays[OVERLAY_TDT_LABELS] = TilesOverlay(
+        MapTileProviderBasic(mapView.context, TiandituTileSource(layer = layers.label, key = key)),
+        mapView.context
+    ).apply {
+        applyTileOverlayDefaults()
+        setUseDataConnection(true)
+    }
+    requestTileRefresh(mapView)
+}
+
+private data class TiandituLayers(val base: String, val label: String)
+
+private fun tiandituLayers(mapSource: String): TiandituLayers? = when (MapSource.normalize(mapSource)) {
+    MapSource.TIANDITU_VECTOR -> TiandituLayers(base = "vec", label = "cva")
+    MapSource.TIANDITU_IMAGE -> TiandituLayers(base = "img", label = "cia")
+    else -> null
+}
+
+private fun TilesOverlay.applyTileOverlayDefaults() {
+    setColorFilter(null)
+    setLoadingBackgroundColor(Color.TRANSPARENT)
+    setLoadingLineColor(Color.TRANSPARENT)
+}
+
+private fun requestTileRefresh(mapView: MapView) {
+    mapView.post {
+        mapView.requestLayout()
+        mapView.invalidate()
+        mapView.postInvalidate()
+    }
+    mapView.postDelayed({
+        mapView.invalidate()
+        mapView.postInvalidate()
+    }, TILE_REFRESH_DELAY_MS)
+}
+
+private fun buildTiandituWmtsUrl(
+    baseUrl: String,
+    layer: String,
+    zoom: Int,
+    row: Int,
+    col: Int,
+    encodedKey: String
+): String = "$baseUrl?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=$layer" +
+    "&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILEMATRIX=$zoom&TILEROW=$row&TILECOL=$col&tk=$encodedKey"
+
+private class TiandituTileSource(
+    private val layer: String,
+    private val key: String
+) : OnlineTileSourceBase(
+    "tianditu-wmts-https-$layer",
+    1,
+    18,
+    256,
+    ".png",
+    Array(8) { index -> "https://t$index.tianditu.gov.cn/${layer}_w/wmts" },
+    "Tianditu"
+) {
+    private val encodedKey = URLEncoder.encode(key, Charsets.UTF_8.name())
+
+    override fun getTileURLString(pMapTileIndex: Long): String {
+        val zoom = MapTileIndex.getZoom(pMapTileIndex)
+        val row = MapTileIndex.getY(pMapTileIndex)
+        val col = MapTileIndex.getX(pMapTileIndex)
+        return buildTiandituWmtsUrl(
+            baseUrl = getBaseUrl(),
+            layer = layer,
+            zoom = zoom,
+            row = row,
+            col = col,
+            encodedKey = encodedKey
+        )
     }
 }
 // endregion
@@ -282,6 +415,8 @@ private fun setStationPosition(stationPos: GeoPos, mapView: MapView) {
 /** Pool of reusable Marker objects keyed by satellite name, to avoid re-creation every frame */
 private val markerPool = HashMap<String, Marker>()
 private var lastMapView: MapView? = null
+private var lastSatelliteTrack: List<List<GeoPos>>? = null
+private var satelliteTrackOverlay: FolderOverlay? = null
 
 private fun setPositions(
     posMap: Map<OrbitalObject, GeoPos>,
@@ -294,8 +429,9 @@ private fun setPositions(
             lastMapView = mapView
             markerPool.clear()
             iconCache.evictAll()
-            footprintPolyline = null
-            footprintPoints = null
+            lastSatelliteTrack = null
+            satelliteTrackOverlay = null
+            footprintOverlay = null
         }
         // Reuse the existing FolderOverlay — creating a new one and replacing it
         // causes osmdroid to detach shared Marker objects, making them invisible.
@@ -357,6 +493,10 @@ private fun getCachedTextIcon(name: String, mapView: MapView): Drawable {
 }
 
 private fun setSatelliteTrack(satTrack: List<List<GeoPos>>, mapView: MapView) {
+    val cachedOverlay = satelliteTrackOverlay
+    if (lastSatelliteTrack === satTrack && cachedOverlay != null && mapView.overlays[OVERLAY_TRACK] === cachedOverlay) {
+        return
+    }
     val trackOverlay = FolderOverlay()
     try {
         satTrack.forEach { track ->
@@ -366,61 +506,76 @@ private fun setSatelliteTrack(satTrack: List<List<GeoPos>>, mapView: MapView) {
                 trackOverlay.add(this)
             }
         }
+        lastSatelliteTrack = satTrack
+        satelliteTrackOverlay = trackOverlay
         mapView.overlays[OVERLAY_TRACK] = trackOverlay
     } catch (e: Exception) {
         println(e)
     }
 }
 
-/** Reusable footprint Polyline — created once, points updated in-place each frame */
-private var footprintPolyline: Polyline? = null
-private var footprintPoints: ArrayList<GeoPoint>? = null
+/** Reusable footprint overlay - split at the date line so wrapped maps don't drop the circle. */
+private var footprintOverlay: FolderOverlay? = null
 
 private fun setFootprint(orbitalPos: OrbitalPos, mapView: MapView) {
     try {
         val rangeCircle = orbitalPos.getRangeCircle()
-        var pts = footprintPoints
-        if (pts == null || pts.size != rangeCircle.size) {
-            pts = ArrayList(rangeCircle.size)
-            for (gp in rangeCircle) pts.add(GeoPoint(gp.latitude, gp.longitude))
-            footprintPoints = pts
-        } else {
-            for (i in rangeCircle.indices) {
-                pts[i].latitude = rangeCircle[i].latitude
-                pts[i].longitude = rangeCircle[i].longitude
+        val overlay = footprintOverlay ?: FolderOverlay().also { footprintOverlay = it }
+        overlay.items.clear()
+        splitClosedPathOnDateLine(rangeCircle).forEach { segment ->
+            if (segment.size > 1) {
+                overlay.add(
+                    Polyline().apply {
+                        setPoints(segment.map { GeoPoint(it.latitude, it.longitude) })
+                        outlinePaint.set(footprintOutlinePaint)
+                    }
+                )
             }
         }
-        val polyline = footprintPolyline ?: Polyline().apply {
-            outlinePaint.set(footprintPaint)
-            footprintPolyline = this
-        }
-        polyline.setPoints(pts)
-        mapView.overlays[OVERLAY_FOOTPRINT] = polyline
+        mapView.overlays[OVERLAY_FOOTPRINT] = overlay
     } catch (e: Exception) {
         println(e)
     }
 }
 
-/**
- * Update the NightOverlay with the current sub-solar position.
- * The overlay is created once and kept in OVERLAY_TERMINATOR; only its
- * sunLatDeg/sunLonDeg fields are updated each tick so osmdroid redraws it.
- */
-private fun setTerminator(sunLatDeg: Double, sunLonDeg: Double, mapView: MapView) {
-    try {
-        val overlay = mapView.overlays[OVERLAY_TERMINATOR]
-        if (overlay is MapNightOverlay) {
-            overlay.sunLatDeg = sunLatDeg
-            overlay.sunLonDeg = sunLonDeg
-        } else {
-            mapView.overlays[OVERLAY_TERMINATOR] = MapNightOverlay().apply {
-                this.sunLatDeg = sunLatDeg
-                this.sunLonDeg = sunLonDeg
+private fun splitClosedPathOnDateLine(points: List<GeoPos>): List<List<GeoPos>> {
+    if (points.isEmpty()) return emptyList()
+    val segments = mutableListOf<List<GeoPos>>()
+    val segment = mutableListOf<GeoPos>()
+    var previous = points.first()
+    segment.add(previous)
+    (points.drop(1) + points.first()).forEach { current ->
+        when {
+            previous.longitude < -170.0 && current.longitude > 170.0 -> {
+                val edgeLatitude = getDateLineLatitude(previous, current, -180.0)
+                segment.add(GeoPos(edgeLatitude, -180.0))
+                segments.add(segment.toList())
+                segment.clear()
+                segment.add(GeoPos(edgeLatitude, 180.0))
+            }
+            previous.longitude > 170.0 && current.longitude < -170.0 -> {
+                val edgeLatitude = getDateLineLatitude(previous, current, 180.0)
+                segment.add(GeoPos(edgeLatitude, 180.0))
+                segments.add(segment.toList())
+                segment.clear()
+                segment.add(GeoPos(edgeLatitude, -180.0))
             }
         }
-    } catch (e: Exception) {
-        println(e)
+        segment.add(current)
+        previous = current
     }
+    if (segment.size > 1) segments.add(segment)
+    return segments
+}
+
+private fun getDateLineLatitude(previous: GeoPos, current: GeoPos, edgeLongitude: Double): Double {
+    val currentLongitude = when {
+        previous.longitude < -170.0 && current.longitude > 170.0 -> current.longitude - 360.0
+        previous.longitude > 170.0 && current.longitude < -170.0 -> current.longitude + 360.0
+        else -> current.longitude
+    }
+    val fraction = (edgeLongitude - previous.longitude) / (currentLongitude - previous.longitude)
+    return previous.latitude + (current.latitude - previous.latitude) * fraction
 }
 
 /** Place an ic_sun icon marker at the sub-solar point. */
@@ -482,40 +637,62 @@ private fun setMoonPosition(moonLatDeg: Double, moonLonDeg: Double, mapView: Map
 // region MapView lifecycle
 @Composable
 private fun rememberMapViewWithLifecycle(): MapView {
-    val tileSource = XYTileSource("tiles", 0, 6, 256, ".webp", emptyArray<String>())
     val context = LocalContext.current
     val isVertical = isVerticalLayout()
     val mapView = remember {
+        configureOsmdroidCache(context)
         MapView(context).apply {
             setMultiTouchControls(true)
             setUseDataConnection(false)
-            setTileSource(tileSource)
+            setTileSource(offlineTileSource)
             minZoomLevel = getMinZoom(resources.displayMetrics.heightPixels, isVertical)
-            maxZoomLevel = 7.0
+            maxZoomLevel = OFFLINE_MAX_ZOOM
             controller.setCenter(GeoPoint(48.8575, 6.3514))
             controller.setZoom(minZoomLevel + 2)
             zoomController.setVisibility(CustomZoomButtonsController.Visibility.NEVER)
             overlayManager.tilesOverlay.loadingBackgroundColor = Color.TRANSPARENT
             overlayManager.tilesOverlay.loadingLineColor = Color.TRANSPARENT
             overlayManager.tilesOverlay.setColorFilter(createColorFilter())
+            setHorizontalMapRepetitionEnabled(true)
+            setVerticalMapRepetitionEnabled(false)
             setScrollableAreaLimitLatitude(maxLat, minLat, 0)
             overlays.addAll(Array(OVERLAY_COUNT) { FolderOverlay() })
+            addOnFirstLayoutListener { _, _, _, _, _ -> requestTileRefresh(this) }
         }
     }
     val lifecycleObserver = rememberMapViewLifecycleObserver(mapView)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         lifecycle.addObserver(lifecycleObserver)
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            mapView.onResume()
+            requestTileRefresh(mapView)
+        }
         onDispose { lifecycle.removeObserver(lifecycleObserver) }
     }
     return mapView
+}
+
+private fun configureOsmdroidCache(context: android.content.Context) {
+    val cacheRoot = File(context.filesDir, "osmdroid")
+    val tileCache = File(cacheRoot, "tiles")
+    Configuration.getInstance().apply {
+        setUserAgentValue(TILE_USER_AGENT)
+        setOsmdroidBasePath(cacheRoot)
+        setOsmdroidTileCache(tileCache)
+        setTileFileSystemCacheMaxBytes(TILE_CACHE_MAX_BYTES)
+        setTileFileSystemCacheTrimBytes(TILE_CACHE_TRIM_BYTES)
+    }
 }
 
 @Composable
 private fun rememberMapViewLifecycleObserver(mapView: MapView) = remember(mapView) {
     LifecycleEventObserver { _, event ->
         when (event) {
-            Lifecycle.Event.ON_RESUME -> mapView.onResume()
+            Lifecycle.Event.ON_RESUME -> {
+                mapView.onResume()
+                requestTileRefresh(mapView)
+            }
             Lifecycle.Event.ON_PAUSE -> mapView.onPause()
             else -> {}
         }
